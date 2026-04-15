@@ -41,9 +41,18 @@ namespace tpms {
 using Flags = uint8_t;
 
 enum SignalType {
+    // Original
     FSK_19k2_Schrader = 1,
     OOK_8k192_Schrader = 2,
     OOK_8k4_Schrader = 3,
+    // EU 433MHz extensions (proc_tpms_all)
+    FSK_38k4_BMW_G45 = 4,
+    FSK_19k2_BMW_G23 = 5,
+    FSK_19k2_Porsche = 6,
+    // World 315MHz extensions (proc_tpms_all)
+    FSK_19k2_Toyota = 7,
+    FSK_19k2_Elantra = 8,
+    FSK_19k2_JansiteSolar = 9,
 };
 
 class TransponderID {
@@ -72,12 +81,27 @@ class TransponderID {
 class Reading {
    public:
     enum Type {
+        // Original
         None = 0,
         FLM_64 = 1,
         FLM_72 = 2,
         FLM_80 = 3,
         Schrader = 4,
         GMC_96 = 5,
+        // EU 433MHz (FSK_19k2_Schrader path)
+        Ford = 6,
+        Citroen_PSA = 7,
+        Renault = 8,
+        // EU 433MHz (new M4 paths)
+        BMW_G45 = 9,
+        BMW_G23 = 10,
+        Porsche = 11,
+        // World 315MHz (new M4 paths)
+        Toyota = 12,
+        Elantra = 13,
+        Jansite = 14,
+        SolarTruck = 15,
+        JansiteSolar = 16,
     };
 
     constexpr Reading()
@@ -140,7 +164,9 @@ class Packet {
         : packet_{packet},
           signal_type_{signal_type},
           decoder_{packet_, 0},
-          reader_{decoder_} {
+          decoder_inv_{packet_, 1},
+          reader_{decoder_},
+          reader_inv_{decoder_inv_} {
     }
 
     SignalType signal_type() const { return signal_type_; }
@@ -155,13 +181,36 @@ class Packet {
 
     const baseband::Packet packet_;
     const SignalType signal_type_;
-    const ManchesterDecoder decoder_;
+    const ManchesterDecoder decoder_;      // sense=0: standard Manchester
+    const ManchesterDecoder decoder_inv_;  // sense=1: inverted Manchester
 
     const Reader reader_;
+    const Reader reader_inv_;
 
+    // Original decoders
     Optional<Reading> reading_fsk_19k2_schrader() const;
     Optional<Reading> reading_ook_8k192_schrader() const;
     Optional<Reading> reading_ook_8k4_schrader() const;
+
+    // EU 433MHz sub-decoders (called from reading_fsk_19k2_schrader)
+    Optional<Reading> reading_fsk_19k2_ford() const;
+    Optional<Reading> reading_fsk_19k2_citroen() const;
+    Optional<Reading> reading_fsk_19k2_renault() const;
+    Optional<Reading> reading_fsk_19k2_jansite() const;
+    Optional<Reading> reading_fsk_19k2_solar_truck() const;
+
+    // EU 433MHz new M4 signal paths
+    Optional<Reading> reading_fsk_38k4_bmw_g45() const;
+    Optional<Reading> reading_fsk_19k2_bmw_g23() const;
+    Optional<Reading> reading_fsk_19k2_porsche() const;
+
+    // World 315MHz new M4 signal paths
+    Optional<Reading> reading_fsk_19k2_toyota() const;
+    Optional<Reading> reading_fsk_19k2_elantra() const;
+    Optional<Reading> reading_fsk_19k2_jansite_solar() const;
+
+    // NRZI decoder helper
+    size_t nrzi_decode(uint8_t* bytes, size_t n_bits, uint_fast8_t prev_bit) const;
 
     size_t crc_valid_length() const;
 };
