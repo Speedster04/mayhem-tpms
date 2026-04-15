@@ -56,6 +56,31 @@ std::string type_name(tpms::Reading::Type type) {
             return "Schrader";
         case tpms::Reading::Type::GMC_96:
             return "GMC_96";
+        // EU 433MHz (FSK_19k2_Schrader path)
+        case tpms::Reading::Type::Ford:
+            return "Ford/VDO";
+        case tpms::Reading::Type::Citroen_PSA:
+            return "Cit/PSA";
+        case tpms::Reading::Type::Renault:
+            return "Renault";
+        // EU 433MHz (new M4 paths)
+        case tpms::Reading::Type::BMW_G45:
+            return "BMW G4/5";
+        case tpms::Reading::Type::BMW_G23:
+            return "BMW G2/3";
+        case tpms::Reading::Type::Porsche:
+            return "Porsche";
+        // World 315MHz (new M4 paths)
+        case tpms::Reading::Type::Toyota:
+            return "Toyota";
+        case tpms::Reading::Type::Elantra:
+            return "Elantra";
+        case tpms::Reading::Type::Jansite:
+            return "Jansite";
+        case tpms::Reading::Type::SolarTruck:
+            return "Solar";
+        case tpms::Reading::Type::JansiteSolar:
+            return "JanSolar";
         default:
             return "Unknown";
     }
@@ -66,9 +91,12 @@ std::string id(tpms::TransponderID id) {
 }
 
 std::string pressure(Pressure pressure) {
-    return to_string_dec_int(pressure_unit == PRESSURE_UNIT_PSI ? pressure.psi() : pressure_unit == PRESSURE_UNIT_BAR ? pressure.bar()
-                                                                                                                      : pressure.kilopascal(),
-                             3);
+    if (pressure_unit == PRESSURE_UNIT_BAR) {
+        int bar10 = pressure.kilopascal() / 10;
+        return to_string_dec_int(bar10 / 10, 1) + "." + to_string_dec_int(bar10 % 10, 1);
+    }
+    return to_string_dec_int(
+        pressure_unit == PRESSURE_UNIT_PSI ? pressure.psi() : pressure.kilopascal(), 3);
 }
 
 std::string temperature(Temperature temperature) {
@@ -229,6 +257,7 @@ TPMSRecentEntryDetailView::TPMSRecentEntryDetailView(NavigationView& nav, const 
                   &text_type,
                   &text_id,
                   &text_pressure,
+                  &text_bar,
                   &text_temperature,
                   &text_flags,
                   &text_count,
@@ -244,8 +273,11 @@ TPMSRecentEntryDetailView::TPMSRecentEntryDetailView(NavigationView& nav, const 
         std::string unit_str = format::pressure_unit == PRESSURE_UNIT_PSI ? " PSI" : format::pressure_unit == PRESSURE_UNIT_BAR ? " BAR"
                                                                                                                                 : " kPa";
         text_pressure.set(pressure_str + unit_str);
+        int bar10 = entry.last_pressure.value().kilopascal() / 10;
+        text_bar.set("(" + to_string_dec_int(bar10 / 10, 1) + "." + to_string_dec_int(bar10 % 10, 1) + " BAR)");
     } else {
         text_pressure.set("---");
+        text_bar.set("");
     }
 
     if (entry.last_temperature.is_valid()) {
