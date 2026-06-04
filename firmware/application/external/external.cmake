@@ -263,6 +263,10 @@ set(EXTCPPSRC
 	#epirb_rx 168 byte flash 
 	external/epirb_rx/main.cpp
 	external/epirb_rx/ui_epirb_rx.cpp
+	external/epirb_rx/ui_beaconlist.cpp
+	external/epirb_rx/beacon_db.cpp
+	external/epirb_rx/beacon.cpp
+	external/epirb_rx/location.cpp
 
 	#epirb_tx
 	external/epirb_tx/main.cpp
@@ -353,7 +357,11 @@ set(EXTCPPSRC
 
 	#two_tone_rx
 	external/two_tone_rx/main.cpp
-	external/two_tone_rx/ui_two_tone_rx.cpp 
+	external/two_tone_rx/ui_two_tone_rx.cpp
+
+	#hard_reset
+	external/hard_reset/main.cpp
+	external/hard_reset/ui_hard_reset.cpp
 )
 
 set(EXTAPPLIST
@@ -442,6 +450,7 @@ set(EXTAPPLIST
 	p25_tx
 	two_tone_pager
 	two_tone_rx
+	hard_reset
 )
 
 # sdusb has type conflicts with PRALINE (HackRF Pro) - add only for non-PRALINE builds

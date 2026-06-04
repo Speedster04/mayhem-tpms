@@ -104,6 +104,7 @@ class GlassView : public View {
     };
 
     void on_freqchg(int64_t freq);
+    // Function to map the value from one range to another
     int32_t map(int32_t value, int32_t fromLow, int32_t fromHigh, int32_t toLow, int32_t toHigh);
     std::vector<preset_entry> presets_db{};
     void manage_beep_audio();
@@ -163,6 +164,10 @@ class GlassView : public View {
     uint8_t bin_length = screen_width;
     uint8_t offset = 0;
     uint8_t ignore_dc = 0;
+    bool show_rssi_guides = false;
+
+    // start of spectrum area
+    static constexpr int spectrum_y = (108 + 16);
 
     Labels labels{
         {{0, UI_POS_Y(0)}, "MIN:     MAX:     LNA   VGA  ", Theme::getInstance()->fg_light->foreground},
@@ -284,15 +289,19 @@ class GlassView : public View {
         }};
 
     Button button_jump{
-        {screen_width - 4 * 8, 5 * 16, 4 * 8, 16},
+        {UI_POS_X_RIGHT(4), UI_POS_Y(5), UI_POS_WIDTH(4), UI_POS_HEIGHT(1)},
         "JMP"};
 
     Button button_rst{
-        {screen_width - 9 * 8, 5 * 16, 4 * 8, 16},
+        {UI_POS_X_RIGHT(9), UI_POS_Y(5), UI_POS_WIDTH(4), UI_POS_HEIGHT(1)},
         "RST"};
 
+    Button button_rssi{
+        {UI_POS_X_RIGHT(15), UI_POS_Y(5), UI_POS_WIDTH(5), UI_POS_HEIGHT(1)},
+        "RSSI"};
+
     Text freq_stats{
-        {UI_POS_X(0), 5 * 16, screen_width - 10 * 8, 8},
+        {UI_POS_X(0), UI_POS_Y(5), UI_POS_WIDTH(14), UI_POS_HEIGHT(1)},
         ""};
 
     MessageHandlerRegistration message_handler_spectrum_config{
