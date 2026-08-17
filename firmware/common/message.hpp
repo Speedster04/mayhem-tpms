@@ -161,6 +161,16 @@ class Message {
         ToneDetectData = 103,
         ToneDetectConfig = 104,
         FlexTosend = 105,
+        EPIRBRXConfig = 106,
+        VorRxConfigure = 107,
+        VorRxStatusData = 108,
+        VorTxConfigure = 109,
+        HunterConfig = 110,
+        HunterTrigger = 111,
+        HunterStop = 112,
+        TetraBsch = 113,
+        TetraDnb = 114,
+        AudioDDCConfig = 115,
         MAX
     };
 
@@ -301,6 +311,16 @@ class SpectrumStreamingConfigMessage : public Message {
     Mode mode{Mode::Stopped};
 };
 
+class AudioDDCConfigMessage : public Message {
+   public:
+    constexpr AudioDDCConfigMessage(int32_t frequency)
+        : Message{ID::AudioDDCConfig},
+          frequency{frequency} {
+    }
+
+    int32_t frequency{0};
+};
+
 class WidebandSpectrumConfigMessage : public Message {
    public:
     constexpr WidebandSpectrumConfigMessage(
@@ -348,6 +368,7 @@ class AudioSpectrumMessage : public Message {
 struct ChannelSpectrum {
     std::array<uint8_t, 256> db{{0}};
     uint32_t sampling_rate{0};
+    int32_t channel_filter_offset{0};
     int32_t channel_filter_low_frequency{0};
     int32_t channel_filter_high_frequency{0};
     int32_t channel_filter_transition{0};
@@ -388,6 +409,16 @@ class EPIRBPacketMessage : public Message {
     }
 
     baseband::Packet packet;
+};
+
+class EPIRBRXConfig : public Message {
+   public:
+    constexpr EPIRBRXConfig()
+        : Message{ID::EPIRBRXConfig} {
+    }
+    bool spectrum_on = false;
+    bool audio_on = true;
+    uint8_t squelch{50};
 };
 
 class TPMSPacketMessage : public Message {
@@ -1117,11 +1148,11 @@ class SigGenToneMessage : public Message {
 
 class EPIRBTXDataMessage : public Message {
    public:
-    static constexpr uint8_t max_len = 18;
+    static constexpr uint8_t max_len = 32;
     constexpr EPIRBTXDataMessage()
         : Message{ID::EPIRBTXData} {
     }
-    bool mode_bpsk = true;
+    bool mode_406 = true;
     uint8_t data[max_len]{0};
     uint8_t data_len = 0;
     uint32_t pre_count = 0;
@@ -1203,7 +1234,7 @@ class SSTVRXConfigureMessage : public Message {
    public:
     constexpr SSTVRXConfigureMessage(
         const uint8_t code)
-        : Message{id : ID::SSTVRXConfigure},
+        : Message{ID::SSTVRXConfigure},
           code(code) {
     }
 
@@ -1599,17 +1630,20 @@ class BatteryStateMessage : public Message {
         uint8_t valid_mask,
         uint8_t percent,
         bool on_charger,
-        uint16_t voltage)
+        uint16_t voltage,
+        bool battMayChanged)
         : Message{ID::BatteryStateData},
           valid_mask{valid_mask},
           percent{percent},
           on_charger{on_charger},
-          voltage{voltage} {
+          voltage{voltage},
+          battMayChanged{battMayChanged} {
     }
     uint8_t valid_mask = 0;
     uint8_t percent = 0;
     bool on_charger = false;
     uint16_t voltage = 0;  // mV
+    bool battMayChanged = false;
 };
 
 class ProtoViewDataMessage : public Message {
@@ -1885,6 +1919,68 @@ class ToneDetectConfigureMessage : public Message {
     uint32_t ctcss_freq_x10{0};  // CTCSS frequency × 10 (e.g. 1000 = 100.0 Hz); 0 = None
 };
 
+class VorRxConfigureMessage : public Message {
+   public:
+    constexpr VorRxConfigureMessage(bool enabled = true)
+        : Message{ID::VorRxConfigure},
+          enabled{enabled} {
+    }
+
+    bool enabled{true};
+};
+
+class VorRxStatusDataMessage : public Message {
+   public:
+    constexpr VorRxStatusDataMessage(
+        uint16_t phase_deg = 0,
+        uint16_t radial_deg = 0,
+        uint16_t reference_level = 0,
+        uint16_t variable_level = 0,
+        uint8_t quality = 0,
+        bool valid = false,
+        bool to_from = false)
+        : Message{ID::VorRxStatusData},
+          phase_deg{phase_deg},
+          radial_deg{radial_deg},
+          reference_level{reference_level},
+          variable_level{variable_level},
+          quality{quality},
+          valid{valid},
+          to_from{to_from} {
+    }
+
+    uint16_t phase_deg{0};
+    uint16_t radial_deg{0};
+    uint16_t reference_level{0};
+    uint16_t variable_level{0};
+    uint8_t quality{0};
+    bool valid{false};
+    bool to_from{false};
+};
+
+class VorTxConfigureMessage : public Message {
+   public:
+    VorTxConfigureMessage(
+        uint16_t radial_deg = 0,
+        bool ident_enabled = true,
+        const char* ident = "",
+        bool enabled = true)
+        : Message{ID::VorTxConfigure},
+          radial_deg{radial_deg},
+          ident_enabled{ident_enabled},
+          enabled{enabled} {
+        size_t i = 0;
+        for (; ident && ident[i] && i < sizeof(ident_text) - 1; ++i)
+            ident_text[i] = ident[i];
+        ident_text[i] = '\0';
+    }
+
+    uint16_t radial_deg{0};
+    bool ident_enabled{true};
+    bool enabled{true};
+    char ident_text[8]{};  // CW identifier, null-terminated (max 7 chars)
+};
+
 class FlexTosendMessage : public Message {
    public:
     constexpr FlexTosendMessage(
@@ -1905,4 +2001,68 @@ class FlexTosendMessage : public Message {
     uint8_t msg[240] = {0};
 };
 
+class HunterConfigMessage : public Message {
+   public:
+    uint32_t energy_threshold{5000};
+    uint32_t hangtime_ms{500};
+    bool start{false};
+    constexpr HunterConfigMessage()
+        : Message{ID::HunterConfig} {}
+};
+
+class HunterTriggerMessage : public Message {
+   public:
+    uint32_t energy{0};
+    constexpr HunterTriggerMessage()
+        : Message{ID::HunterTrigger} {}
+};
+
+class HunterStopMessage : public Message {
+   public:
+    constexpr HunterStopMessage()
+        : Message{ID::HunterStop} {}
+};
+
+struct TetraBurstMessage : public Message {
+    constexpr TetraBurstMessage(
+        const uint8_t* bits,
+        bool inv,
+        uint8_t err)
+        : Message(Message::ID::TetraBsch),
+          inverted(inv),
+          sync_errors(err),
+          payload{} {
+        for (size_t i = 0; i < 63; i++)
+            payload[i] = bits[i];
+    }
+
+    bool inverted;
+    uint8_t sync_errors;
+
+    // 500 bit
+    std::array<uint8_t, 63> payload;
+};
+
+struct TetraDnbMessage : public Message {
+    constexpr TetraDnbMessage(
+        const uint8_t* bits,
+        bool inv,
+        uint8_t err,
+        bool p_train)
+        : Message(Message::ID::TetraDnb),
+          inverted(inv),
+          train_errors(err),
+          is_p_train(p_train),
+          payload{} {
+        for (size_t i = 0; i < 54; i++)
+            payload[i] = bits[i];
+    }
+
+    bool inverted;
+    uint8_t train_errors;
+    bool is_p_train;
+
+    // 432 TCH type-5 bits: 216 bits before the training sequence + 216 bits after.
+    std::array<uint8_t, 54> payload;
+};
 #endif /*__MESSAGE_H__*/

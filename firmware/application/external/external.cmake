@@ -133,6 +133,14 @@ set(EXTCPPSRC
 	external/noaaapt_rx/main.cpp
 	external/noaaapt_rx/ui_noaaapt_rx.cpp
 
+	#vor_rx
+	external/vor_rx/main.cpp
+	external/vor_rx/ui_vor_rx.cpp
+
+	#vor_tx
+	external/vor_tx/main.cpp
+	external/vor_tx/ui_vor_tx.cpp
+
 	#shoppingcart_lock 272 bytes
 	external/shoppingcart_lock/main.cpp
 	external/shoppingcart_lock/shoppingcart_lock.cpp
@@ -161,6 +169,7 @@ set(EXTCPPSRC
 	#mcu_temperature    112
 	external/mcu_temperature/main.cpp
 	external/mcu_temperature/mcu_temperature.cpp
+	external/mcu_temperature/temperature_logger.cpp
 
 	#fmradio  640
 	external/fmradio/main.cpp
@@ -263,6 +272,10 @@ set(EXTCPPSRC
 	#epirb_rx 168 byte flash 
 	external/epirb_rx/main.cpp
 	external/epirb_rx/ui_epirb_rx.cpp
+	external/epirb_rx/ui_beaconlist.cpp
+	external/epirb_rx/beacon_db.cpp
+	external/epirb_rx/beacon.cpp
+	external/epirb_rx/location.cpp
 
 	#epirb_tx
 	external/epirb_tx/main.cpp
@@ -323,7 +336,7 @@ set(EXTCPPSRC
 	external/rtty_tx/ui_rtty_tx.cpp
 	external/rtty_tx/baudot.cpp
 
-    #pocsag_tx
+	#pocsag_tx
 	external/pocsag_tx/main.cpp
 	external/pocsag_tx/ui_pocsag_tx.cpp
 
@@ -353,7 +366,51 @@ set(EXTCPPSRC
 
 	#two_tone_rx
 	external/two_tone_rx/main.cpp
-	external/two_tone_rx/ui_two_tone_rx.cpp 
+	external/two_tone_rx/ui_two_tone_rx.cpp
+
+	#hard_reset
+	external/hard_reset/main.cpp
+	external/hard_reset/ui_hard_reset.cpp
+
+	#secplustx
+	external/secplustx/main.cpp
+	external/secplustx/ui_secplustx.cpp
+	external/secplustx/secplustx.cpp
+
+  #signal_hunter
+  external/signal_hunter/main.cpp
+  external/signal_hunter/ui_signal_hunter.cpp
+
+
+	#tetra rx
+	external/tetra_rx/main.cpp
+	external/tetra_rx/ui_tetra_rx.cpp
+	external/tetra_rx/tetra_crc.cpp
+	external/tetra_rx/tetra_descrambler.cpp
+	external/tetra_rx/tetra_interleave.cpp
+	external/tetra_rx/tetra_rcpc.cpp
+	external/tetra_rx/tetra_viterbi.cpp
+
+	#adsb rx
+	external/adsbrx/main.cpp
+	external/adsbrx/ui_adsb_rx.cpp
+
+	#ais rx
+	external/ais_rx/main.cpp
+	external/ais_rx/ais_app.cpp
+
+	#aprs rx
+	external/aprs_rx/main.cpp
+	external/aprs_rx/ui_aprs_rx.cpp
+
+	#aprs tx
+	external/aprs_tx/main.cpp
+	external/aprs_tx/ui_aprs_tx.cpp
+
+	#sd over usb
+	external/sdusb/main.cpp
+	external/sdusb/ui_sd_over_usb.cpp
+
 )
 
 set(EXTAPPLIST
@@ -388,6 +445,8 @@ set(EXTAPPLIST
 	acars_rx
 	wefax_rx
 	noaaapt_rx
+	vor_rx
+	vor_tx
 	shoppingcart_lock
 	ookbrute
 	ook_editor
@@ -442,14 +501,13 @@ set(EXTAPPLIST
 	p25_tx
 	two_tone_pager
 	two_tone_rx
+	hard_reset
+	secplustx
+  signal_hunter
+	tetra_rx
+	adsbrx
+	ais_rx
+	aprs_rx
+	aprs_tx
+	sdusb
 )
-
-# sdusb has type conflicts with PRALINE (HackRF Pro) - add only for non-PRALINE builds
-if(NOT BOARD STREQUAL "PRALINE")
-       list(APPEND EXTCPPSRC
-               external/sdusb/main.cpp
-               external/sdusb/ui_sd_over_usb.cpp
-       )
-       list(APPEND EXTAPPLIST sdusb)
-endif()
-

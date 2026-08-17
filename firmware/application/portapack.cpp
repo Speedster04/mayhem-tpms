@@ -56,6 +56,9 @@ using asahi_kasei::ak4951::AK4951;
 #include "i2cdevmanager.hpp"
 #include "battery.hpp"
 
+#include "gpio.hpp"
+using namespace gpio_control;
+
 extern "C" {
 #include "platform_detect.h"
 
@@ -71,11 +74,9 @@ const char* init_error = nullptr;
 portapack::IO io{
     portapack::gpio_dir,
     portapack::gpio_lcd_rdx,
-    portapack::gpio_lcd_wrx,
     portapack::gpio_io_stbx,
     portapack::gpio_addr,
     portapack::gpio_lcd_te,
-    portapack::gpio_dfu,
 };
 
 portapack::BacklightCAT4004 backlight_cat4004;
@@ -98,8 +99,6 @@ AK4951 audio_codec_ak4951{i2c0, 0x12};
 
 ReceiverModel receiver_model;
 TransmitterModel transmitter_model;
-
-TemperatureLogger temperature_logger;
 
 bool antenna_bias{false};
 uint32_t bl_tick_counter{0};
@@ -339,6 +338,20 @@ static void shutdown_base() {
     clock_manager.shutdown();
 }
 
+static void shutdown_base_12mhz() {
+    i2c0.stop();
+
+    set_clock_config(clock_config_irc);
+
+    cgu::pll1::disable();
+
+    set_idivc_base_clocks(cgu::CLK_SEL::IRC);
+
+    i2c0.start(i2c_config_boot_clock);
+
+    clock_manager.shutdown();
+}
+
 static void set_cpu_clock_speed() {
     /* Incantation from LPC43xx UM10503 section 12.2.1.1, to bring the M4
      * core clock speed to the 110 - 204MHz range.
@@ -346,19 +359,12 @@ static void set_cpu_clock_speed() {
 
     /* Step into the 90-110MHz M4 clock range */
 #ifdef PRALINE
-    /* PRALINE: Enable and use 12MHz XTAL directly (no GP_CLKIN from Si5351) */
-
-    /* Step 1: Enable the crystal oscillator */
-    LPC_CGU->XTAL_OSC_CTRL.ENABLE = 0;  // 0 = enable (active low)
-    LPC_CGU->XTAL_OSC_CTRL.HF = 0;      // 0 = low frequency mode (1-20MHz)
-
-    /* Step 2: Wait for oscillator to stabilize (~250us at IRC speed) */
-    volatile uint32_t delay = 3000;  // ~250us at 12MHz IRC
-    while (delay--);
-
-    /* Step 3: Configure PLL1 from XTAL
-     *   Fclkin = 12M, /N=1 = 12M, Fcco = 12M * 17 = 204M
-     *   Fclk = Fcco / (2*(P=1)) = 102M
+    /* PRALINE: source PLL1 from GP_CLKIN, which is driven by the Si5351
+     * CLK2/MCU_CLK output at 40MHz (see ClockManager Si5351 setup). The
+     * on-chip 12MHz XTAL bootstrap path is intentionally not used here.
+     *
+     *   Fclkin = 40M (GP_CLKIN), /N=2 = 20M, Fcco = 20M * 10 = 200M
+     *   Fclk = Fcco / (2*(P=1)) = 100M
      */
     cgu::pll1::ctrl({
         .pd = 1,
@@ -367,10 +373,11 @@ static void set_cpu_clock_speed() {
         .direct = 0,
         .psel = 0,
         .autoblock = 1,
-        .nsel = 0,   // N = 1
-        .msel = 16,  // M = 17, so 12MHz * 17 = 204MHz
-        .clk_sel = cgu::CLK_SEL::XTAL,
+        .nsel = 1UL,  // N = 2
+        .msel = 9UL,  // M = 10
+        .clk_sel = cgu::CLK_SEL::GP_CLKIN,
     });
+
 #else
     /* OG:
      * 	Fclkin = 40M, /N=2 = 20M, Fcco = 20M * 10 = 200M
@@ -553,12 +560,6 @@ static void initialize_boot_splash_screen() {
  */
 
 init_status_t init() {
-#ifdef PRALINE
-    /* 1. HOLD FPGA IN RESET (Active Low) */
-    // P5_2 is GPIO2[11] (FPGA CRESET)
-    palClearPad(GPIO2, 11);
-#endif
-
     set_idivc_base_clocks(cgu::CLK_SEL::IDIVC);
 
     i2c0.start(i2c_config_boot_clock);
@@ -586,8 +587,11 @@ init_status_t init() {
     }
 
     /* Cache some configuration data from persistent memory. */
+
     rtc_time::dst_init();
     chThdSleepMilliseconds(10);
+
+    power_control::core_power_on();
 
     clock_manager.init_clock_generator();
 
@@ -599,6 +603,7 @@ init_status_t init() {
     cgu::pll1::disable();
 
     set_cpu_clock_speed();
+
     /* sample max: 1023 sample_t AKA uint16_t
      * touch_sensitivity: range: 1 to 128
      * threshold range: 1023/1 to 1023/128  =  1023 to 8
@@ -698,7 +703,7 @@ init_status_t init() {
     return return_code;
 }
 
-void shutdown(const bool leave_screen_on) {
+void shutdown(const bool leave_screen_on, const bool slow_clock) {
     gpdma::controller.disable();
 
     if (!leave_screen_on) {
@@ -712,7 +717,11 @@ void shutdown(const bool leave_screen_on) {
 
     hackrf::cpld::init_from_eeprom();
 
-    shutdown_base();
+    if (slow_clock) {
+        shutdown_base_12mhz();
+    } else {
+        shutdown_base();
+    }
 }
 
 void setEventDispatcherToUSBSerial(EventDispatcher* evt) {

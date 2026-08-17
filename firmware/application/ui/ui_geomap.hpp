@@ -30,13 +30,16 @@
 #include "bmpfile.hpp"
 #include "mathdef.hpp"
 
+#include <array>
+#include <cstdio>
+#include <inttypes.h>
 #include "portapack.hpp"
 
 namespace ui {
 
 #define MAX_MAP_ZOOM_IN 4000
-#define MAX_MAP_ZOOM_OUT 10
-#define MAP_ZOOM_RESOLUTION_LIMIT 5  // Max zoom-in to show map; rect height & width must divide into this evenly
+#define MAX_MAP_ZOOM_OUT 15
+#define MAP_ZOOM_RESOLUTION_LIMIT 10  // Max zoom-in to show map;
 
 #define INVALID_LAT_LON 200
 #define INVALID_ANGLE 400
@@ -72,6 +75,101 @@ struct GeoMarker {
         color = rhs.color;
         return *this;
     }
+};
+
+class BMPFileCache {
+   public:
+    static constexpr uint8_t SlotsCount = 9;
+
+    BMPFileCache() {
+    }
+
+    ~BMPFileCache() {
+        clear();
+    }
+
+    BMPFile* get(const int32_t z, const int32_t x, const int32_t y) {
+        // Cache hit.
+        for (auto& slot : slots_) {
+            if (slot.used && slot.x == x && slot.y == y && slot.z == z) {
+                slot.last_used = next_stamp();
+                return &slot.bmp;
+            }
+        }
+
+        // Select free slot first, otherwise LRU slot.
+        Slot* target = nullptr;
+        uint16_t oldest = 0xFFFFu;
+        for (auto& slot : slots_) {
+            if (!slot.used) {
+                target = &slot;
+                break;
+            }
+            if (slot.last_used < oldest) {
+                oldest = slot.last_used;
+                target = &slot;
+            }
+        }
+
+        if (!target) {
+            return nullptr;
+        }
+
+        if (target->used) {
+            target->bmp.close();
+            target->used = false;
+        }
+
+        // OSM tile path convention: <base>/<z>/<x>/<y>.bmp
+        char path_buffer[64];
+        snprintf(path_buffer, sizeof(path_buffer), "/OSM/%" PRId32 "/%" PRId32 "/%" PRId32 ".bmp", z, x, y);
+
+        if (!target->bmp.open(path_buffer, true)) {
+            target->bmp.close();
+            return nullptr;
+        }
+
+        target->x = x;
+        target->y = y;
+        target->z = z;
+        target->last_used = next_stamp();
+        target->used = true;
+        return &target->bmp;
+    }
+
+    void clear() {
+        for (auto& slot : slots_) {
+            if (slot.used) {
+                slot.bmp.close();
+                slot.used = false;
+            }
+        }
+    }
+
+   private:
+    struct Slot {
+        BMPFile bmp{};
+        int32_t x{};
+        int32_t y{};
+        int32_t z{};
+        uint16_t last_used{};
+        bool used{false};
+    };
+
+    uint16_t next_stamp() {
+        if (++stamp_ == 0) {
+            uint16_t v = 1;
+            for (auto& slot : slots_) {
+                if (slot.used) {
+                    slot.last_used = v++;
+                }
+            }
+            stamp_ = v;
+        }
+        return stamp_;
+    }
+    std::array<Slot, SlotsCount> slots_{};
+    uint16_t stamp_{0};
 };
 
 class GeoPos : public View {
@@ -141,12 +239,21 @@ class GeoPos : public View {
         {25 * 8, UI_POS_Y(0), 5 * 8, 16},
         ""};
 
-    NumberField field_lat_degrees{
+    // Sign is held by the hemisphere field, not by the degrees field: an
+    // int32_t degrees field has no negative zero, so a coordinate in
+    // (-1, 0) could not otherwise be represented (see issue #3234).
+    OptionsField field_lat_hemisphere{
         {5 * 8, 1 * 16},
-        4,
-        {-90, 90},
         1,
-        ' '};
+        {{"N", 0},
+         {"S", 1}}};
+    NumberField field_lat_degrees{
+        {6 * 8, 1 * 16},
+        3,
+        {0, 90},
+        1,
+        ' ',
+        false};
     NumberField field_lat_minutes{
         {10 * 8, 1 * 16},
         2,
@@ -165,12 +272,18 @@ class GeoPos : public View {
         {17 * 8, 1 * 16, 13 * 8, 1 * 16},
         ""};
 
-    NumberField field_lon_degrees{
+    OptionsField field_lon_hemisphere{
         {5 * 8, 2 * 16},
-        4,
-        {-180, 180},
         1,
-        ' '};
+        {{"E", 0},
+         {"W", 1}}};
+    NumberField field_lon_degrees{
+        {6 * 8, 2 * 16},
+        3,
+        {0, 180},
+        1,
+        ' ',
+        false};
     NumberField field_lon_minutes{
         {10 * 8, 2 * 16},
         2,
@@ -247,7 +360,7 @@ class GeoMap : public Widget {
     ui::Point item_rect_pixel(GeoMarker& item);
     GeoPoint lat_lon_to_map_pixel(float lat, float lon);
     void draw_marker_item(Painter& painter, GeoMarker& item, const Color color, const Color fontColor = Color::white(), const Color backColor = Color::black());
-    void draw_marker(Painter& painter, const ui::Point itemPoint, const uint16_t itemAngle, const std::string itemTag, const Color color = Color::red(), const Color fontColor = Color::white(), const Color backColor = Color::black());
+    void draw_marker(Painter& painter, const ui::Point itemPoint, const uint16_t itemAngle, const std::string& itemTag, const Color color = Color::red(), const Color fontColor = Color::white(), const Color backColor = Color::black());
     void draw_markers(Painter& painter);
     void draw_mypos(Painter& painter);
     void draw_bearing(const Point origin, const uint16_t angle, uint32_t size, const Color color);
@@ -264,6 +377,9 @@ class GeoMap : public Widget {
     double lat_to_pixel_y_tile(double lat, int zoom);
     double tile_pixel_x_to_lon(int x, int zoom);
     double tile_pixel_y_to_lat(int y, int zoom);
+
+    std::vector<ui::Color> map_line_buffer{};
+
     uint8_t map_osm_zoom{5};
     uint8_t map_osm_real_zoom{5};
     double viewport_top_left_px = 0;
@@ -273,6 +389,7 @@ class GeoMap : public Widget {
     bool hide_center_marker_{false};
     GeoMapMode mode_{};
     File map_file{};
+    BMPFileCache bmp_cache{};
     bool map_opened{};
     bool map_visible{};
     uint16_t map_width{}, map_height{};

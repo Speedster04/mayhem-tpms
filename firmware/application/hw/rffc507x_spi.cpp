@@ -23,48 +23,44 @@
 
 #include "utility.hpp"
 
-#include "hackrf_gpio.hpp"
-using namespace hackrf::one;
+#include "gpio.hpp"
+using namespace gpio_control;
 
 namespace rffc507x {
 namespace spi {
 
 void SPI::init() {
-    gpio_rffc5072_select.set();
-    gpio_rffc5072_clock.clear();
-
-    gpio_rffc5072_select.output();
-    gpio_rffc5072_clock.output();
-    gpio_rffc5072_data.input();
-
-    gpio_rffc5072_data.clear();
+    rffc5072_select.setInactive();
+    rffc5072_clock.setInactive();
+    rffc5072_sdata.input();
+    rffc5072_sdata.setInactive();
 }
 
 inline void SPI::select(const bool active) {
-    gpio_rffc5072_select.write(!active);
+    rffc5072_select.setState(active);
 }
 
 inline void SPI::direction_out() {
-    gpio_rffc5072_data.output();
+    rffc5072_sdata.output();
 }
 
 inline void SPI::direction_in() {
-    gpio_rffc5072_data.input();
+    rffc5072_sdata.input();
 }
 
 inline void SPI::write_bit(const bit_t value) {
-    gpio_rffc5072_data.write(value);
+    rffc5072_sdata.write(value);
 }
 
 inline bit_t SPI::read_bit() {
-    return gpio_rffc5072_data.read() & 1;
+    return rffc5072_sdata.read() & 1;
 }
 
 inline bit_t SPI::transfer_bit(const bit_t bit_out) {
-    gpio_rffc5072_clock.clear();
+    rffc5072_clock.setInactive();
     write_bit(bit_out);
     const bit_t bit_in = read_bit();
-    gpio_rffc5072_clock.set();
+    rffc5072_clock.setActive();
     return bit_in;
 }
 
@@ -101,6 +97,14 @@ data_t SPI::transfer_word(const Direction direction, const address_t address, co
     transfer_bits(0, 2);
 
     return data_in;
+}
+
+void SPI::power_down() {
+    // A 0x01 address the MIX_CTRL register. A 0x0000
+    transfer_word(Direction::Write, 0x01, 0x0000);
+
+    // a chip 300 µA-es Power Down
+    transfer_word(Direction::Write, 0x00, 0x0000);
 }
 
 }  // namespace spi

@@ -19,12 +19,16 @@
  * the Free Software Foundation, Inc., 51 Franklin Street,
  * Boston, MA 02110-1301, USA.
  */
+#ifndef PRALINE  // not praline
 
 #include "max2839.hpp"
 
 #include "hackrf_hal.hpp"
 #include "hackrf_gpio.hpp"
 using namespace hackrf::one;
+
+#include "gpio.hpp"
+using namespace gpio_control;
 
 #include "ch.h"
 #include "hal.h"
@@ -100,9 +104,6 @@ static int_fast8_t requested_rx_vga_gain = 0;
 void MAX2839::init() {
     set_mode(Mode::Shutdown);
 
-    gpio_max283x_enable.output();
-    gpio_max2839_rxtx.output();
-
     _map.r.rxrf_1.MIMOmode = 1; /* enable RXINB */
 
     _map.r.pa_drv.TXVGA_GAIN_SPI_EN = 1;
@@ -129,6 +130,8 @@ void MAX2839::init() {
 
     _map.r.rssi_vga.RSSI_MODE = 1; /* RSSI independent of RXHP */
 
+    _map.r.rssi_vga.RSSI_INPUT = 0; /* Measure RSSI at VGA Output (stronger signal) */
+
     /*
      * There are two LNA band settings, but we only use one of them.
      * Switching to the other one doesn't make the overall spectrum any
@@ -149,9 +152,6 @@ void MAX2839::set_tx_LO_iq_phase_calibration(const size_t v) {
 
     // TX calibration , 2 x Logic pins , ENABLE, RXENABLE = 1,0, (2dec), and  Reg address 16, D1 (CAL mode 1):DO (CHIP ENABLE 1)
     set_mode(Mode::Tx_Calibration);  // write to ram 3 LOGIC Pins .
-
-    gpio_max283x_enable.output();  // max2839 has only 2 x pins + regs to decide mode.
-    gpio_max2839_rxtx.output();    // Here is combined rx & tx pin in one port.
 
     _map.r.spi_en.CAL_SPI = 1;  // Register Settings reg address 16,  D1 (CAL mode 1)
     _map.r.spi_en.EN_SPI = 1;   // Register Settings reg address 16,  DO (CHIP ENABLE 1)
@@ -201,7 +201,7 @@ void MAX2839::set_mode(const Mode mode) {
     _mode = mode;
 
     Mask mask = mode_mask(mode);
-    gpio_max283x_enable.write(toUType(mask) & toUType(Mask::Enable));
+    max283x_enable.write(toUType(mask) & toUType(Mask::Enable));
     gpio_max2839_rxtx.write(toUType(mask) & toUType(Mask::RxTx));
 }
 
@@ -301,9 +301,8 @@ void MAX2839::configure_rx_gain() {
     }
 
     _map.r.lpf_vga_2.L = lna::gain_ordinal(lna_gain);
-    _dirty[Register::RXRF_2] = 1;
     _map.r.lpf_vga_2.VGA = vga::gain_ordinal(vga_gain);
-    _dirty[Register::LPF_VGA_2] = 1;
+    _dirty[Register::LPF_VGA_2] = 1; /* both L (LNA) and VGA live in LPF_VGA_2 */
     flush();
 }
 
@@ -390,9 +389,6 @@ void MAX2839::set_rx_LO_iq_phase_calibration(const size_t v) {
     // RX calibration , Logic pins , ENABLE, RXENABLE, TXENABLE = 1,1,0 (3dec), and  Reg address 16, D1 (CAL mode 1):DO (CHIP ENABLE 1)
     set_mode(Mode::Rx_Calibration);  // write to ram 3 LOGIC Pins .
 
-    gpio_max283x_enable.output();  // max2839 has only 2 x pins + regs to decide mode.
-    gpio_max2839_rxtx.output();    // Here is combined rx & tx pin in one port.
-
     _map.r.spi_en.CAL_SPI = 1;  // Register Settings reg address 16,  D1 (CAL mode 1)
     _map.r.spi_en.EN_SPI = 1;   // Register Settings reg address 16,  DO (CHIP ENABLE 1)
     flush_one(Register::SPI_EN);
@@ -440,3 +436,4 @@ int8_t MAX2839::temp_sense() {
 }
 
 }  // namespace max2839
+#endif  // not PRALINE

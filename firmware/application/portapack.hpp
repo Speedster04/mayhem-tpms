@@ -36,7 +36,6 @@
 
 #include "radio.hpp"
 #include "clock_manager.hpp"
-#include "temperature_logger.hpp"
 #include "theme.hpp"
 
 /* TODO: This would be better as a class to add
@@ -67,10 +66,7 @@ extern ReceiverModel receiver_model;
 extern TransmitterModel transmitter_model;
 
 extern uint32_t bl_tick_counter;
-extern bool antenna_bias;
 extern uint16_t touch_threshold;
-
-extern TemperatureLogger temperature_logger;
 
 /* Get or set the antenna_bias flag.
  * NB: Does not actually update the radio state. */
@@ -78,7 +74,7 @@ void set_antenna_bias(const bool v);
 bool get_antenna_bias();
 
 init_status_t init();
-void shutdown(const bool leave_screen_on = false);
+void shutdown(const bool leave_screen_on = false, const bool slow_clock = false);
 
 void setEventDispatcherToUSBSerial(EventDispatcher* evt);
 

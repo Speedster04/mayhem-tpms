@@ -54,6 +54,8 @@ void set_baseband_filter_bandwidth_rx(const uint32_t bandwidth_minimum);
 void set_baseband_filter_bandwidth_tx(const uint32_t bandwidth_minimum);
 void set_baseband_rate(const uint32_t rate);
 void set_antenna_bias(const bool on);
+bool get_mixer_invert();
+bool get_baseband_invert();
 void set_tx_max283x_iq_phase_calibration(const size_t v);
 void set_rx_max283x_iq_phase_calibration(const size_t v);
 
@@ -124,6 +126,10 @@ rf::Direction get_cached_direction();
 bool get_cached_rf_amp();
 int_fast8_t get_cached_lna_gain();
 int_fast8_t get_cached_vga_gain();
+
+/* FPGA RX quarter-rate shift currently programmed, in gateware encoding:
+ * 0b00 none, 0b11 up, 0b01 down. */
+uint8_t get_cached_quarter_shift();
 #endif
 
 namespace sgpio {
