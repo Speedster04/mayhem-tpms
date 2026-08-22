@@ -359,15 +359,6 @@ SystemStatusView::SystemStatusView(
         this->on_bias_tee();
     };
 
-    button_fake_brightness.on_select = [this](ImageButton&) {
-        set_dirty();
-        pmem::toggle_fake_brightness_level();
-        refresh();
-        if (nullptr != parent()) {
-            parent()->set_dirty();  // The parent of NavigationView shal be the SystemView
-        }
-    };
-
     button_camera.on_select = [this](ImageButton&) {
         this->on_camera();
     };
@@ -460,7 +451,6 @@ void SystemStatusView::refresh() {
     // Display "Disable speaker" icon only if AK4951 Codec which has separate speaker/headphone control
     if (audio::speaker_disable_supported() && !pmem::ui_hide_speaker()) status_icons.add(&toggle_speaker);
 
-    if (!pmem::ui_hide_fake_brightness()) status_icons.add(&button_fake_brightness);
     if (battery::BatteryManagement::isDetected()) {
         batt_was_inited = true;
         if (!pmem::ui_hide_battery_icon()) {
@@ -492,9 +482,6 @@ void SystemStatusView::refresh() {
     // Converter
     button_converter.set_bitmap(pmem::config_updown_converter() ? &bitmap_icon_downconvert : &bitmap_icon_upconvert);
     button_converter.set_foreground(pmem::config_converter() ? Theme::getInstance()->fg_red->foreground : Theme::getInstance()->fg_light->foreground);
-
-    // Fake Brightness
-    button_fake_brightness.set_foreground(pmem::apply_fake_brightness() ? *Theme::getInstance()->status_active : Theme::getInstance()->fg_light->foreground);
 
     set_dirty();
 }
@@ -1143,13 +1130,18 @@ void SystemView::toggle_overlay() {
 }
 
 void SystemView::paint_overlay() {
-    static bool last_paint_state = false;
+    // Static variable to store the timestamp of the last update
+    static systime_t last_update_time = 0;
+
     if (overlay_active) {
-        // paint background only every other second
-        if ((((chTimeNow() >> 10) & 0x01) == 0x01) == last_paint_state)
+        // Update exactly once per second (CH_FREQUENCY equals 1 second of ticks)
+        // This replaces the old hardcoded bit-shift logic for better portability
+        if ((chTimeNow() - last_update_time) < CH_FREQUENCY)
             return;
 
-        last_paint_state = !last_paint_state;
+        // One second has passed, save the new timestamp
+        last_update_time = chTimeNow();
+
         if (overlay_active == 1 && overlay)
             overlay->set_dirty();
         else if (overlay_active == 2 && overlay2)
