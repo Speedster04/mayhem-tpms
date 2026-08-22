@@ -124,6 +124,7 @@ set(CPPSRC
 	dsp_goertzel.cpp
 	matched_filter.cpp
 	spectrum_collector.cpp
+	filtered_spectrum_collector.cpp
 	tv_collector.cpp
 	stream_input.cpp
 	stream_output.cpp
@@ -220,11 +221,17 @@ endif()
 
 # Upstream hackrf headers now gate on IS_* macros normally populated by
 # hackrf/firmware/platform-detect.cmake. We don't include that here, so derive
-# the IS_* set from BOARD ourselves. IS_H1_R9 is forced to 0 (compile-time
-# constant) so `if (IS_H1_R9)` branches resolve without needing the runtime
-# detected_platform() symbol, which mayhem doesn't link in.
+# the IS_* set from BOARD ourselves. IS_H1_R9 must mirror the upstream
+# HACKRF_ONE definition: a *runtime* check on detected_platform(). The only
+# baseband image that compiles IS_H1_R9-gated upstream files (rf_path.c,
+# si5351c.c, sgpio.c, platform_gpio.c, platform_scu.c) is sd_over_usb, which
+# does link platform_detect.c and calls detect_hardware_platform() at startup.
+# Forcing IS_H1_R9=0 here silently compiled out all H1R9 behaviour, so a real
+# HackRF One r9 was configured with the OG clock/GPIO/RF-path setup in that
+# image. All usages are `#ifdef IS_H1_R9` + `if (IS_H1_R9)` (never arithmetic
+# `#if`), so a function-call expression is safe.
 if(BOARD STREQUAL "HACKRF_ONE")
-    set(BOARD_IS_DEFS "-DIS_HACKRF_ONE=1 -DIS_NOT_PRALINE=1 -DIS_H1_R9=0 -DIS_NOT_H1_R9=1 -DIS_NOT_RAD1O=1 -DIS_NOT_JAWBREAKER=1 -DIS_H1_OR_PRALINE=1 -DIS_H1_OR_RAD1O=1 -DIS_H1_OR_JAWBREAKER=1 -DIS_EXPANSION_COMPATIBLE=1")
+    set(BOARD_IS_DEFS "-DIS_HACKRF_ONE=1 -DIS_NOT_PRALINE=1 -D'IS_H1_R9=(detected_platform()==BOARD_ID_HACKRF1_R9)' -D'IS_NOT_H1_R9=(!IS_H1_R9)' -DIS_NOT_RAD1O=1 -DIS_NOT_JAWBREAKER=1 -DIS_H1_OR_PRALINE=1 -DIS_H1_OR_RAD1O=1 -DIS_H1_OR_JAWBREAKER=1 -DIS_EXPANSION_COMPATIBLE=1")
 elseif(BOARD STREQUAL "PRALINE")
     set(BOARD_IS_DEFS "-DIS_PRALINE=1 -DIS_NOT_HACKRF_ONE=1 -DIS_NOT_H1_R9=1 -DIS_NOT_RAD1O=1 -DIS_NOT_JAWBREAKER=1 -DIS_H1_OR_PRALINE=1 -DIS_FOUR_LEDS=1 -DIS_EXPANSION_COMPATIBLE=1")
 elseif(BOARD STREQUAL "RAD1O")
@@ -510,6 +517,20 @@ DeclareTargets(PFUT flash_utility)
 set(add_to_firmware FALSE)
 set(MODE_FLAGS "-O3")
 
+### VOR TX
+
+set(MODE_CPPSRC
+	proc_vor_tx.cpp
+)
+DeclareTargets(PVTX vor_tx)
+
+### VOR RX
+
+set(MODE_CPPSRC
+	proc_vor_rx.cpp
+)
+DeclareTargets(PVRX vor_rx)
+
 ### FLEX RX
 
 set(MODE_CPPSRC
@@ -727,13 +748,6 @@ set(MODE_CPPSRC
 )
 DeclareTargets(PRTT rtty_tx)
 
-### SD over USB
-
-set(MODE_INCDIR
-	${HACKRF_PATH}/firmware
-	${HACKRF_PATH}/firmware/common
-	${HACKRF_PATH}/firmware/libopencm3/include
-)
 
 ### Morse TX
 
@@ -749,6 +763,13 @@ set(MODE_CPPSRC
 )
 DeclareTargets(PTON tones)
 
+### Signal Hunter
+
+set(MODE_CPPSRC
+    proc_signal_hunter.cpp
+)
+DeclareTargets(HUNT signal_hunter)
+
 
 
 ### Time Sink
@@ -758,6 +779,24 @@ set(MODE_CPPSRC
 )
 DeclareTargets(PTSK time_sink)
 
+
+### Tetra Rx
+
+set(MODE_CPPSRC
+	proc_tetra.cpp
+)
+DeclareTargets(PTET tetra_rx)
+
+### SD over USB
+
+set(MODE_INCDIR
+	${HACKRF_PATH}/firmware
+	${HACKRF_PATH}/firmware/common
+	${HACKRF_PATH}/firmware/libopencm3/include
+	${HACKRF_PATH}/firmware/hackrf_usb
+	sd_over_usb/
+)
+
 set(MODE_CPPSRC
 	sd_over_usb/proc_sd_over_usb.cpp
 
@@ -765,7 +804,9 @@ set(MODE_CPPSRC
 	sd_over_usb/diskio.c
 	sd_over_usb/sd_over_usb.c
 	sd_over_usb/usb_descriptor.c
-	sd_over_usb/hackrf_core.c
+	sd_over_usb/usb_api_transceiver.c
+	sd_over_usb/cpu_clock.c
+	sd_over_usb/pins.c
 
 	${HACKRF_PATH}/firmware/common/adc.c
 	${HACKRF_PATH}/firmware/common/selftest.c
@@ -792,6 +833,15 @@ set(MODE_CPPSRC
 	${HACKRF_PATH}/firmware/common/rffc5071_spi.c
 	${HACKRF_PATH}/firmware/common/rffc5071.c
 	${HACKRF_PATH}/firmware/common/gpdma.c
+	${HACKRF_PATH}/firmware/common/clock_gen.c
+	${HACKRF_PATH}/firmware/common/cpld_jtag.c
+	${HACKRF_PATH}/firmware/common/leds.c
+	${HACKRF_PATH}/firmware/common/power.c
+	${HACKRF_PATH}/firmware/common/clock_io.c
+	${HACKRF_PATH}/firmware/common/rom_iap.c
+	${HACKRF_PATH}/firmware/common/w25q80bv.c
+	${HACKRF_PATH}/firmware/common/w25q80bv_target.c
+	
 
 	${HACKRF_PATH}/firmware/libopencm3/lib/cm3/nvic.c
 	${HACKRF_PATH}/firmware/libopencm3/lib/cm3/sync.c
@@ -799,10 +849,7 @@ set(MODE_CPPSRC
 	${HACKRF_PATH}/firmware/libopencm3/lib/lpc43xx/timer.c
 	${HACKRF_PATH}/firmware/libopencm3/lib/lpc43xx/i2c.c
 )
-# sd_over_usb has type conflicts with PRALINE (HackRF Pro) - disable for now
-if(NOT BOARD STREQUAL "PRALINE")
 DeclareTargets(PUSB sd_over_usb)
-endif()
 
 
 ### HackRF "factory" firmware

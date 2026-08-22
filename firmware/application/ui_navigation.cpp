@@ -2,7 +2,7 @@
  * Copyright (C) 2015 Jared Boone, ShareBrained Technology, Inc.
  * Copyright (C) 2016 Furrtek
  * Copyright (C) 2024 u-foka
- * copyleft 2024 zxkmm AKA zix aka sommermorgentraum
+ * copyleft 2024 zxkmm
  *
  * This file is part of PortaPack.
  *
@@ -30,9 +30,6 @@
 #include "portapack.hpp"
 
 #include "ui_about_simple.hpp"
-#include "ui_adsb_rx.hpp"
-#include "ui_aprs_rx.hpp"
-#include "ui_aprs_tx.hpp"
 #include "ui_btle_rx.hpp"
 #include "ui_debug.hpp"
 #include "ui_encoders.hpp"
@@ -49,6 +46,7 @@
 #include "ui_recon.hpp"
 #include "ui_search.hpp"
 #include "ui_settings.hpp"
+#include "ui_textentry.hpp"
 #include "ui_sonde.hpp"
 #include "ui_ss_viewer.hpp"
 // #include "ui_test.hpp"
@@ -59,7 +57,6 @@
 #include "ui_battinfo.hpp"
 #include "ui_external_items_menu_loader.hpp"
 
-#include "ais_app.hpp"
 #include "analog_audio_app.hpp"
 #include "ble_rx_app.hpp"
 #include "ble_tx_app.hpp"
@@ -98,9 +95,6 @@ const NavigationView::AppList NavigationView::appList = {
     {nullptr, "Games", HOME, Color::cyan(), &bitmap_icon_games, new ViewFactory<GamesMenuView>()},
     {nullptr, "Settings", HOME, Color::cyan(), &bitmap_icon_setup, new ViewFactory<SettingsMenuView>()},
     /* RX ********************************************************************/
-    {"adsbrx", "ADS-B", RX, Color::green(), &bitmap_icon_adsb, new ViewFactory<ADSBRxView>()},
-    {"ais", "AIS Boats", RX, Color::green(), &bitmap_icon_ais, new ViewFactory<AISAppView>()},
-    {"aprsrx", "APRS", RX, Color::green(), &bitmap_icon_aprs, new ViewFactory<APRSRXView>()},
     {"audio", "Audio", RX, Color::green(), &bitmap_icon_speaker, new ViewFactory<AnalogAudioView>()},
     {"blerx", "BLE Rx", RX, Color::green(), &bitmap_icon_btle, new ViewFactory<BLERxView>()},
     {"pocsag", "POCSAG", RX, Color::green(), &bitmap_icon_pocsag, new ViewFactory<POCSAGAppView>()},
@@ -109,7 +103,6 @@ const NavigationView::AppList NavigationView::appList = {
     {"subghzd", "SubGhzD", RX, Color::yellow(), &bitmap_icon_remote, new ViewFactory<SubGhzDView>()},
     {"weather", "Weather", RX, Color::green(), &bitmap_icon_thermometer, new ViewFactory<WeatherView>()},
     /* TX ********************************************************************/
-    {"aprstx", "APRS TX", TX, ui::Color::green(), &bitmap_icon_aprs, new ViewFactory<APRSTXView>()},
     {"bletx", "BLE Tx", TX, ui::Color::green(), &bitmap_icon_btle, new ViewFactory<BLETxView>()},
     {"ooktx", "OOK", TX, ui::Color::yellow(), &bitmap_icon_remote, new ViewFactory<EncodersView>()},
     {"rdstx", "RDS", TX, ui::Color::green(), &bitmap_icon_rds, new ViewFactory<RDSView>()},
@@ -137,6 +130,115 @@ bool NavigationView::StartAppByName(const char* name) {
         }
     }
     return false;
+}
+
+/* App search ***********************************************************/
+
+namespace {
+
+// ASCII, allocation-free, case-insensitive lowering. Kept local so this TU
+// doesn't need to include <cctype> just for one small comparison.
+char ascii_lower(char c) {
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+}
+
+// True when 'needle' occurs anywhere in 'haystack', case-insensitive.
+bool name_contains(const char* haystack, const std::string& needle) {
+    const size_t n = needle.size();
+    if (n == 0)
+        return false;
+    for (size_t i = 0; haystack[i] != '\0'; ++i) {
+        size_t j = 0;
+        while (j < n && haystack[i + j] != '\0' &&
+               ascii_lower(haystack[i + j]) == ascii_lower(needle[j]))
+            ++j;
+        if (j == n)
+            return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+void NavigationView::start_app_search() {
+    app_search_query_.clear();
+    app_search_committed_ = false;
+
+    // Reuse the shared keyboard view; it is destroyed as soon as the user
+    // confirms or cancels, so no search UI ever lingers in RAM.
+    text_prompt(*this, app_search_query_, 20, ENTER_KEYBOARD_MODE_ALPHA,
+                [this](std::string& query) {
+                    // Runs while the keyboard is still alive: only record that a
+                    // query was confirmed; results are built once it has popped.
+                    app_search_committed_ = !query.empty();
+                });
+
+    // Defer building/showing the results until the keyboard view has popped.
+    set_on_pop([this]() { open_app_search_results(); });
+}
+
+void NavigationView::open_app_search_results() {
+    if (!app_search_committed_)
+        return;  // user cancelled with Back, or the query was empty
+    app_search_committed_ = false;
+
+    std::vector<AppSearchEntry> matches;
+
+    // Internal apps: match on the name shown in the menus.
+    for (const auto& app : appList) {
+        if (app.displayName != nullptr && app.viewFactory != nullptr &&
+            name_contains(app.displayName, app_search_query_))
+            matches.push_back({app.displayName, app.viewFactory, {}});
+    }
+
+    // External (.ppma) and standalone (.ppmp) apps on the SD card. The
+    // enumerator hands back pointers to short-lived buffers, so the names are
+    // copied into owned strings here. Match on both the friendly name and the
+    // file (call) name. module_included=false: PPmod apps can't be launched by
+    // path, so they're intentionally excluded.
+    ExternalItemsMenuLoader::load_all_external_items_callback(
+        [this, &matches](AppInfoConsole& info) {
+            if (name_contains(info.appFriendlyName, app_search_query_) ||
+                name_contains(info.appCallName, app_search_query_))
+                matches.push_back({info.appFriendlyName, nullptr, info.appCallName});
+        },
+        false);
+
+    if (matches.empty()) {
+        display_modal("Search", "No matching app found.");
+        return;
+    }
+
+    push<AppSearchResultsView>(std::move(matches));
+}
+
+void NavigationView::launch_search_entry(ViewFactoryBase* factory, std::string call_name) {
+    // Same close-then-open contract as StartAppByName: drop the search UI
+    // (freeing the results view and the very button that called us) before
+    // starting the target, so only one app is ever resident. Everything used
+    // below is a by-value argument or this resident NavigationView.
+    home(false);
+
+    if (factory != nullptr) {
+        push_view(factory->produce(*this));
+        return;
+    }
+
+    // External/standalone: AppInfoConsole doesn't record which kind it is, so
+    // try both extensions the way handle_autostart() does.
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> conv;
+
+    std::string appwithpath = "/" + apps_dir.string() + "/" + call_name + ".ppma";
+    std::filesystem::path pth = conv.from_bytes(appwithpath.c_str());
+    if (ExternalItemsMenuLoader::run_external_app(*this, pth))
+        return;
+
+    appwithpath = "/" + apps_dir.string() + "/" + call_name + ".ppmp";
+    pth = conv.from_bytes(appwithpath.c_str());
+    if (ExternalItemsMenuLoader::run_standalone_app(*this, pth))
+        return;
+
+    display_modal("Search", "Failed to start:\n" + call_name);
 }
 
 /* StatusTray ************************************************************/
@@ -257,15 +359,6 @@ SystemStatusView::SystemStatusView(
         this->on_bias_tee();
     };
 
-    button_fake_brightness.on_select = [this](ImageButton&) {
-        set_dirty();
-        pmem::toggle_fake_brightness_level();
-        refresh();
-        if (nullptr != parent()) {
-            parent()->set_dirty();  // The parent of NavigationView shal be the SystemView
-        }
-    };
-
     button_camera.on_select = [this](ImageButton&) {
         this->on_camera();
     };
@@ -358,7 +451,6 @@ void SystemStatusView::refresh() {
     // Display "Disable speaker" icon only if AK4951 Codec which has separate speaker/headphone control
     if (audio::speaker_disable_supported() && !pmem::ui_hide_speaker()) status_icons.add(&toggle_speaker);
 
-    if (!pmem::ui_hide_fake_brightness()) status_icons.add(&button_fake_brightness);
     if (battery::BatteryManagement::isDetected()) {
         batt_was_inited = true;
         if (!pmem::ui_hide_battery_icon()) {
@@ -390,9 +482,6 @@ void SystemStatusView::refresh() {
     // Converter
     button_converter.set_bitmap(pmem::config_updown_converter() ? &bitmap_icon_downconvert : &bitmap_icon_upconvert);
     button_converter.set_foreground(pmem::config_converter() ? Theme::getInstance()->fg_red->foreground : Theme::getInstance()->fg_light->foreground);
-
-    // Fake Brightness
-    button_fake_brightness.set_foreground(pmem::apply_fake_brightness() ? *Theme::getInstance()->status_active : Theme::getInstance()->fg_light->foreground);
 
     set_dirty();
 }
@@ -561,6 +650,7 @@ InformationView::InformationView(
     NavigationView& nav)
     : nav_(nav) {
     add_children({&backdrop,
+                  &search_icon,
                   &version,
                   &ltime});
 
@@ -602,6 +692,19 @@ bool InformationView::firmware_checksum_error() {
 #endif
     }
     return fw_checksum_error;
+}
+
+bool InformationView::on_touch(const TouchEvent event) {
+    // The whole info bar is one touch target. Capture on Start so the End
+    // event is delivered here, then act on release like a normal button tap.
+    switch (event.type) {
+        case TouchEvent::Type::End:
+            if (nav_.is_valid())
+                nav_.start_app_search();
+            return true;
+        default:
+            return true;
+    }
 }
 
 /* Navigation ************************************************************/
@@ -873,6 +976,32 @@ void GamesMenuView::on_populate() {
     add_external_items(nav_, app_location_t::GAMES, *this, return_icon ? 1 : 0);
 }
 
+/* AppSearchResultsView *************************************************/
+
+AppSearchResultsView::AppSearchResultsView(NavigationView& nav, std::vector<AppSearchEntry>&& entries)
+    : nav_(nav), entries_(std::move(entries)) {
+    set_max_rows(2);  // wider buttons: app names need the room
+}
+
+void AppSearchResultsView::on_populate() {
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        const auto& entry = entries_[i];
+        // Internal apps are green, external/standalone orange, matching the
+        // "yellow-ish external" convention used elsewhere. No icon: the cheap
+        // enumerator doesn't decode external bitmaps.
+        add_item({entry.display,
+                  entry.factory ? Color::green() : Color::orange(),
+                  nullptr,
+                  [this, i]() {
+                      // Read the target off entries_ and pass it by value: the
+                      // call below frees this view via home(), so nothing after
+                      // it may touch 'this' or its members.
+                      nav_.launch_search_entry(entries_[i].factory, entries_[i].call_name);
+                  }},
+                 true);
+    }
+}
+
 /* SystemMenuView ********************************************************/
 
 void SystemMenuView::hackrf_mode(NavigationView& nav) {
@@ -1001,13 +1130,18 @@ void SystemView::toggle_overlay() {
 }
 
 void SystemView::paint_overlay() {
-    static bool last_paint_state = false;
+    // Static variable to store the timestamp of the last update
+    static systime_t last_update_time = 0;
+
     if (overlay_active) {
-        // paint background only every other second
-        if ((((chTimeNow() >> 10) & 0x01) == 0x01) == last_paint_state)
+        // Update exactly once per second (CH_FREQUENCY equals 1 second of ticks)
+        // This replaces the old hardcoded bit-shift logic for better portability
+        if ((chTimeNow() - last_update_time) < CH_FREQUENCY)
             return;
 
-        last_paint_state = !last_paint_state;
+        // One second has passed, save the new timestamp
+        last_update_time = chTimeNow();
+
         if (overlay_active == 1 && overlay)
             overlay->set_dirty();
         else if (overlay_active == 2 && overlay2)
